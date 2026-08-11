@@ -194,6 +194,11 @@ public abstract class FileFormat extends File {
     // By default, HDF4 and HDF5 file formats are added to the supported formats list.
     static
     {
+        // Best-effort pin to the bundled core libraries before any JNI wrapper initializes.
+        // Failures fallback to the default library loading path.
+        NativeLibraryLoader.preloadHDF5();
+        NativeLibraryLoader.preloadHDF4();
+
         // add HDF4 to default modules
         if (FileFormat.getFileFormat(FILE_TYPE_HDF4) == null) {
             try {
