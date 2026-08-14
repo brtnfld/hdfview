@@ -662,14 +662,22 @@ jobs:
               Write-Host "✓ jpackage app-image created successfully"
               $size = (Get-ChildItem -Recurse "hdfview\target\dist\HDFView" | Measure-Object -Property Length -Sum).Sum / 1MB
               Write-Host "Package size: $([math]::Round($size, 2)) MB"
-              $dlls = (Get-ChildItem -Recurse "hdfview\target\dist\HDFView\lib\app\*.dll" -ErrorAction SilentlyContinue).Count
+              # jpackage's Windows layout is <root>\app
+              $dlls = (Get-ChildItem -Recurse "hdfview\target\dist\HDFView\app\*.dll" -ErrorAction SilentlyContinue).Count
               Write-Host "Native libraries: $dlls .dll files"
-              $jars = (Get-ChildItem -Recurse "hdfview\target\dist\HDFView\lib\app\*.jar" -ErrorAction SilentlyContinue).Count
+              $jars = (Get-ChildItem -Recurse "hdfview\target\dist\HDFView\app\*.jar" -ErrorAction SilentlyContinue).Count
               Write-Host "JAR files: $jars JARs"
             } else {
               Write-Error "✗ jpackage app-image creation failed"
               exit 1
             }
+
+        - name: Relocate HDF core DLLs beside the launcher
+          shell: pwsh
+          run: |
+            # Windows has no rpath. Move the core DLLs next to HDFView.exe to give them search priority over
+            # the system folder and PATH. Must run before signing and MSI creation.
+            .\package_files\windows\relocate-core-dlls.ps1 -AppImage "hdfview\target\dist\HDFView"
 
         - name: Install Microsoft Trusted Signing
           if: github.repository == 'HDFGroup/hdfview' && env.AZURE_TENANT_ID != ''

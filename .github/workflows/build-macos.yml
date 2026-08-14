@@ -288,6 +288,15 @@ jobs:
               exit 1
             fi
 
+        - name: Verify HDF dylib pinning
+          run: |
+            # Make sure that DYLD_* is disabled to prevent accidental loading of system libraries instead of bundled libraries,
+            # and verify that the install names are relative to the bundle.
+            chmod +x package_files/macosx/verify-dylib-pinning.sh
+            ./package_files/macosx/verify-dylib-pinning.sh \
+              hdfview/target/dist/HDFView.app \
+              package_files/macosx/distribution.entitlements
+
         - name: Create Application Archive
           run: |
             cd hdfview/target/dist

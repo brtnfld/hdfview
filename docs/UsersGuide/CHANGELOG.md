@@ -27,6 +27,12 @@ All notable changes to this project will be documented in this file. This docume
 
 ## Major Bug Fixes
 
+* **Other HDF4/HDF5 installations no longer prevent HDFView from starting**: HDFView ships its own copies of the HDF4 and HDF5 libraries, but the operating system could load a different installation in their place if one was visible to it — through `PATH` on Windows, or `LD_LIBRARY_PATH` on Linux. When that installation was a different version, HDFView usually failed to start, reporting "failed to launch JVM".
+
+  The bundled libraries are now pinned when HDFView is packaged, so they are used regardless of whatever else is installed on the machine.
+
+  Consequently, `PATH` and `LD_LIBRARY_PATH` can no longer be used to make an installed HDFView load a *different* HDF4/HDF5 build. This applies to the packaged application only, as running HDFView from a source build is unchanged, and still uses the libraries named in `build.properties`.
+
 ## Minor Bug Fixes
 
 # ☑️ Platforms Tested
@@ -40,8 +46,6 @@ HDFView is built and tested with **HDF 4.3.X** and **HDF5 2.Y.Z** on the followi
 Current test results and detailed platform information are available in the [GitHub repository](https://github.com/HDFGroup/hdfview).
 
 # ⛔ Known Problems
-
-* **PATH pointing to other HDF4/5 installations**: If the environment path points to a directory including HDF4/5 installations, then these installations may be loaded by HDFView instead of the bundled HDF4/5 versions, causing the application to fail to launch with a "failed to launch JVM" error. This can be resolved by either removing those directories from the PATH, or removing the HDF4/5 installations from that directory.
 
 * **Large Dataset Handling**: HDFView currently cannot nicely handle large datasets when using the default display mode, as the data is loaded in its entirety. To view large datasets, it is recommended to right click on a data object and use the "Open As" menu item, where a subset of data to view can be selected.
 
