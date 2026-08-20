@@ -27,11 +27,11 @@ All notable changes to this project will be documented in this file. This docume
 
 ## Major Bug Fixes
 
-* **Other HDF4/HDF5 installations no longer prevent HDFView from starting**: HDFView ships its own copies of the HDF4 and HDF5 libraries, but the operating system could load a different installation in their place if one was visible to it — through `PATH` on Windows, or `LD_LIBRARY_PATH` on Linux. When that installation was a different version, HDFView usually failed to start, reporting "failed to launch JVM".
+* **Windows: other HDF4/HDF5 installations no longer prevent HDFView from starting**: HDFView ships its own copies of the HDF4 and HDF5 libraries, but Windows could load a different installation in their place if one was on `PATH`. Windows DLLs carry no version in their name, so any `hdf5.dll` on `PATH` would satisfy the reference regardless of which version it was, and HDFView usually failed to start, reporting "failed to launch JVM".
 
-  The bundled libraries are now pinned when HDFView is packaged, so they are used regardless of whatever else is installed on the machine.
+  The bundled DLLs are now installed next to `HDFView.exe`, whose directory Windows searches ahead of both the system folder and `PATH`, so the bundled copies are used regardless of what else is installed on the machine.
 
-  Consequently, `PATH` and `LD_LIBRARY_PATH` can no longer be used to make an installed HDFView load a *different* HDF4/HDF5 build. This applies to the packaged application only, as running HDFView from a source build is unchanged, and still uses the libraries named in `build.properties`.
+  Consequently, `PATH` can no longer be used to make an installed HDFView load a *different* HDF4/HDF5 build. This applies to the packaged application only, as running HDFView from a source build is unchanged, and still uses the libraries named in `build.properties`.
 
 ## Minor Bug Fixes
 
