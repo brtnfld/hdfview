@@ -27,6 +27,12 @@ All notable changes to this project will be documented in this file. This docume
 
 ## Major Bug Fixes
 
+* **Windows: other HDF4/HDF5 installations no longer prevent HDFView from starting**: HDFView ships its own copies of the HDF4 and HDF5 libraries, but Windows could load a different installation in their place if one was on `PATH`. Windows DLLs carry no version in their name, so any `hdf5.dll` on `PATH` would satisfy the reference regardless of which version it was, and HDFView usually failed to start, reporting "failed to launch JVM".
+
+  The bundled DLLs are now installed next to `HDFView.exe`, whose directory Windows searches ahead of both the system folder and `PATH`, so the bundled copies are used regardless of what else is installed on the machine.
+
+  Consequently, `PATH` can no longer be used to make an installed HDFView load a *different* HDF4/HDF5 build. This applies to the packaged application only, as running HDFView from a source build is unchanged, and still uses the libraries named in `build.properties`.
+
 ## Minor Bug Fixes
 
 # ☑️ Platforms Tested
@@ -40,8 +46,6 @@ HDFView is built and tested with **HDF 4.3.X** and **HDF5 2.Y.Z** on the followi
 Current test results and detailed platform information are available in the [GitHub repository](https://github.com/HDFGroup/hdfview).
 
 # ⛔ Known Problems
-
-* **PATH pointing to other HDF4/5 installations**: If the environment path points to a directory including HDF4/5 installations, then these installations may be loaded by HDFView instead of the bundled HDF4/5 versions, causing the application to fail to launch with a "failed to launch JVM" error. This can be resolved by either removing those directories from the PATH, or removing the HDF4/5 installations from that directory.
 
 * **Large Dataset Handling**: HDFView currently cannot nicely handle large datasets when using the default display mode, as the data is loaded in its entirety. To view large datasets, it is recommended to right click on a data object and use the "Open As" menu item, where a subset of data to view can be selected.
 

@@ -16,6 +16,12 @@
   <properties>
     <module-name>org.hdfgroup.hdfview</module-name>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Which staged native libraries are held back from jpackage's input directory -->
+    <!-- and placed beside the launcher instead. Overridden by jpackage-win-base, the -->
+    <!-- only profile that passes them on to jpackage; patterns that match nothing -->
+    <!-- leave every native library in the input directory. -->
+    <jpackage.corelib.include>no-core-libraries-on-this-platform</jpackage.corelib.include>
+    <jpackage.corelib.exclude>no-core-libraries-on-this-platform</jpackage.corelib.exclude>
   </properties>
 
   <dependencies>
@@ -267,6 +273,8 @@
                   <goal>run</goal>
                 </goals>
                 <configuration>
+                  <!-- Publishes jpackage.app.content for the jpackage invocation below. -->
+                  <exportAntProperties>true</exportAntProperties>
                   <target>
                     <echo message="Preparing jpackage input directory..."/>
 
@@ -315,6 +323,33 @@
                         <include name="*.jar"/>
                       </fileset>
                     </copy>
+
+                    <!-- Hold back the core libraries that the JNI wrappers depend on. -->
+                    <!-- Windows has no rpath, and a wrapper's dependencies are resolved by -->
+                    <!-- module name through the loader's search order: the launcher's own -->
+                    <!-- directory, then the system folder, then PATH. jpackage stages the -->
+                    <!-- input directory at <root>\app, which the launcher only appends to -->
+                    <!-- PATH, so an hdf5.dll earlier in PATH would win. Handing these to -->
+                    <!-- the app-content option instead puts them at <root>, beside the -->
+                    <!-- launcher, where the loader looks first. Matches nothing on Linux -->
+                    <!-- and macOS, where the soname and install name already pin the -->
+                    <!-- bundled copies. -->
+                    <property name="jpackage.corelibs" value="${project.build.directory}/jpackage-corelibs"/>
+                    <delete dir="${jpackage.corelibs}"/>
+                    <mkdir dir="${jpackage.corelibs}"/>
+                    <move todir="${jpackage.corelibs}" failonerror="false">
+                      <fileset dir="${jpackage.input}">
+                        <include name="${jpackage.corelib.include}"/>
+                        <exclude name="${jpackage.corelib.exclude}"/>
+                      </fileset>
+                    </move>
+                    <!-- Exported to Maven for the jpackage app-content argument. Left -->
+                    <!-- unset when nothing was held back, so a platform that does not pass -->
+                    <!-- the option never sees an empty value. -->
+                    <pathconvert property="jpackage.app.content" pathsep="," setonempty="false">
+                      <fileset dir="${jpackage.corelibs}" includes="*"/>
+                    </pathconvert>
+                    <echo message="Core libraries for --app-content: ${jpackage.app.content}"/>
 
                     <!-- Copy HDF5 plugins -->
                     <echo message="Copying HDF5 plugins from ${hdf5.plugin.dir}..."/>
@@ -421,6 +456,15 @@
     <!-- Only use when creating app-image, NOT when creating installers from app-image -->
     <profile>
       <id>jpackage-win-base</id>
+      <properties>
+        <!-- The core DLLs are every native library except the JNI wrappers, which -->
+        <!-- stay in the input directory so that java.library.path can find them. -->
+        <!-- Held back here rather than in platform-windows, so that the staging -->
+        <!-- target only separates them out when this profile is also passing them -->
+        <!-- to jpackage. -->
+        <jpackage.corelib.include>*.dll</jpackage.corelib.include>
+        <jpackage.corelib.exclude>*_java.dll</jpackage.corelib.exclude>
+      </properties>
       <build>
         <plugins>
           <plugin>
@@ -433,6 +477,10 @@
                   <arguments combine.children="append">
                     <argument>--icon</argument>
                     <argument>${project.basedir}/../package_files/hdfview.ico</argument>
+                    <!-- Use app-content to copy the core DLLs into the app-image root. -->
+                    <!-- This gives bundled HDF libs priority over ones in system PATH -->
+                    <argument>--app-content</argument>
+                    <argument>${jpackage.app.content}</argument>
                   </arguments>
                 </configuration>
               </execution>

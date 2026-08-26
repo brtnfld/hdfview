@@ -544,6 +544,24 @@ jobs:
               Remove-Item -Recurse -Force $JPACKAGE_INPUT
             }
             New-Item -ItemType Directory -Path $JPACKAGE_INPUT | Out-Null
+
+            # Stage the core DLLs at the app-image root so that they take
+            # priority over other HDF libraries in the system PATH
+            $JPACKAGE_CORELIBS = "hdfview\target\jpackage-corelibs"
+            Write-Host "Creating core library directory: $JPACKAGE_CORELIBS"
+            if (Test-Path $JPACKAGE_CORELIBS) {
+              Remove-Item -Recurse -Force $JPACKAGE_CORELIBS
+            }
+            New-Item -ItemType Directory -Path $JPACKAGE_CORELIBS | Out-Null
+
+            # JNI wrappers stay in the input directory
+            function Copy-NativeLibraries {
+              param([System.IO.FileInfo[]]$Dlls)
+              foreach ($dll in $Dlls) {
+                $dest = if ($dll.Name -like '*_java.dll') { $JPACKAGE_INPUT } else { $JPACKAGE_CORELIBS }
+                Copy-Item -LiteralPath $dll.FullName -Destination $dest -ErrorAction Stop
+              }
+            }
   
             # Copy main JARs from libs/
             Write-Host "Copying main JARs from libs/..."
@@ -562,7 +580,7 @@ jobs:
             if (Test-Path "$env:HDF5LIB_PATH\bin") {
               $hdf5Dlls = Get-ChildItem "$env:HDF5LIB_PATH\bin\*.dll" -ErrorAction SilentlyContinue
               if ($hdf5Dlls) {
-                Copy-Item "$env:HDF5LIB_PATH\bin\*.dll" $JPACKAGE_INPUT\ -ErrorAction Stop
+                Copy-NativeLibraries -Dlls $hdf5Dlls
                 Write-Host "  ✓ Copied $($hdf5Dlls.Count) HDF5 DLLs"
               } else {
                 Write-Warning "  ⚠ No HDF5 DLLs found in $env:HDF5LIB_PATH\bin"
@@ -577,7 +595,7 @@ jobs:
             if (Test-Path "$env:HDF4LIB_PATH\bin") {
               $hdf4Dlls = Get-ChildItem "$env:HDF4LIB_PATH\bin\*.dll" -ErrorAction SilentlyContinue
               if ($hdf4Dlls) {
-                Copy-Item "$env:HDF4LIB_PATH\bin\*.dll" $JPACKAGE_INPUT\ -ErrorAction Stop
+                Copy-NativeLibraries -Dlls $hdf4Dlls
                 Write-Host "  ✓ Copied $($hdf4Dlls.Count) HDF4 DLLs"
               } else {
                 Write-Warning "  ⚠ No HDF4 DLLs found in $env:HDF4LIB_PATH\bin"
@@ -627,12 +645,25 @@ jobs:
               Write-Warning "  ⚠ docs\UsersGuide directory not found"
             }
   
+            # Use --app-content to copy files to the app-image root.
+            # Use absolute paths since jpackage runs
+            # from the hdfview module directory
+            $coreLibs = @(Get-ChildItem $JPACKAGE_CORELIBS -Filter *.dll -File)
+            if ($coreLibs.Count -eq 0) {
+              Write-Error "  ✗ No core HDF libraries staged in $JPACKAGE_CORELIBS"
+              exit 1
+            }
+            $appContent = ($coreLibs.FullName -join ',')
+            "JPACKAGE_APP_CONTENT=$appContent" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
             Write-Host ""
             Write-Host "=== Staging directory prepared ==="
             Write-Host "Total files: $((Get-ChildItem $JPACKAGE_INPUT -Recurse -File).Count)"
             Write-Host "Total size: $([math]::Round((Get-ChildItem $JPACKAGE_INPUT -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 2)) MB"
             Write-Host "JAR files: $((Get-ChildItem $JPACKAGE_INPUT -Filter *.jar).Count)"
-            Write-Host "DLL files: $((Get-ChildItem $JPACKAGE_INPUT -Recurse -Filter *.dll).Count)"
+            Write-Host "JNI wrappers: $((Get-ChildItem $JPACKAGE_INPUT -Filter *.dll).Count)"
+            Write-Host "Core libraries for the app-image root: $($coreLibs.Count)"
+            $coreLibs | ForEach-Object { Write-Host "  $($_.Name)" }
             Write-Host ""
   
         - name: Create jpackage App Image
@@ -647,6 +678,8 @@ jobs:
             # -Dpmd.skip=true: Skip PMD (static analysis not needed for release)
             # -Ddependency-check.skip=true: Skip OWASP (runs in separate security workflow)
             # -Dmaven.antrun.skip=true: Skip Ant plugin (we manually prepared the input directory)
+            # -Djpackage.app.content: The core HDF DLLs, which jpackage places beside the launcher.
+            #   Normally produced by the Ant staging target, which is skipped here.
             Write-Host "Running verify phase with jpackage profiles to create app-image..."
             mvn verify "-Pjpackage-app-image,jpackage-win-base" `
               "-pl" "hdfview" `
@@ -655,21 +688,48 @@ jobs:
               "-Dpmd.skip=true" `
               "-Ddependency-check.skip=true" `
               "-Dmaven.antrun.skip=true" `
+              "-Djpackage.app.content=$env:JPACKAGE_APP_CONTENT" `
               -B
 
             Write-Host "Verifying jpackage output..."
-            if (Test-Path "hdfview\target\dist\HDFView") {
+            $appImage = "hdfview\target\dist\HDFView"
+            if (Test-Path $appImage) {
               Write-Host "✓ jpackage app-image created successfully"
-              $size = (Get-ChildItem -Recurse "hdfview\target\dist\HDFView" | Measure-Object -Property Length -Sum).Sum / 1MB
+              $size = (Get-ChildItem -Recurse $appImage | Measure-Object -Property Length -Sum).Sum / 1MB
               Write-Host "Package size: $([math]::Round($size, 2)) MB"
-              $dlls = (Get-ChildItem -Recurse "hdfview\target\dist\HDFView\lib\app\*.dll" -ErrorAction SilentlyContinue).Count
-              Write-Host "Native libraries: $dlls .dll files"
-              $jars = (Get-ChildItem -Recurse "hdfview\target\dist\HDFView\lib\app\*.jar" -ErrorAction SilentlyContinue).Count
+              $wrappers = (Get-ChildItem "$appImage\app\*.dll" -ErrorAction SilentlyContinue).Count
+              Write-Host "JNI wrappers in app\: $wrappers .dll files"
+              $jars = (Get-ChildItem -Recurse "$appImage\app\*.jar" -ErrorAction SilentlyContinue).Count
               Write-Host "JAR files: $jars JARs"
             } else {
               Write-Error "✗ jpackage app-image creation failed"
               exit 1
             }
+
+            $rootDlls = @(Get-ChildItem "$appImage\*.dll" -File -ErrorAction SilentlyContinue)
+            Write-Host "Core libraries beside HDFView.exe: $($rootDlls.Count)"
+            $rootDlls | ForEach-Object { Write-Host "  $($_.Name)" }
+
+            $failures = @()
+            foreach ($staged in $env:JPACKAGE_APP_CONTENT -split ',') {
+              $name = Split-Path $staged -Leaf
+              if (-not (Test-Path "$appImage\$name")) {
+                $failures += "$name was staged as app content but is not beside HDFView.exe"
+              }
+            }
+            $strays = @($rootDlls | Where-Object { $_.Name -like '*_java.dll' })
+            if ($strays.Count -gt 0) {
+              $failures += "JNI wrappers were placed at the root, out of reach of java.library.path: $($strays.Name -join ', ')"
+            }
+            if ((Get-ChildItem "$appImage\app\*_java.dll" -ErrorAction SilentlyContinue).Count -eq 0) {
+              $failures += "no JNI wrappers in app\, where java.library.path looks for them"
+            }
+            if ($failures.Count -gt 0) {
+              foreach ($failure in $failures) { Write-Host "  FAILED: $failure" }
+              Write-Error "✗ Native library layout is wrong; see above"
+              exit 1
+            }
+            Write-Host "✓ Core libraries sit beside HDFView.exe, ahead of the system folder and PATH"
 
         - name: Install Microsoft Trusted Signing
           if: github.repository == 'HDFGroup/hdfview' && env.AZURE_TENANT_ID != ''
