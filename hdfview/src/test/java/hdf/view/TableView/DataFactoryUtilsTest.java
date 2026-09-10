@@ -21,13 +21,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 import java.util.List;
 
-import hdf.hdf5lib.H5;
-import hdf.hdf5lib.HDF5Constants;
-
 import hdf.object.Datatype;
 import hdf.object.FileFormat;
 import hdf.object.h5.H5CompoundDS;
 import hdf.object.h5.H5File;
+
+import hdf.hdf5lib.H5;
+import hdf.hdf5lib.HDF5Constants;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -81,7 +81,7 @@ public class DataFactoryUtilsTest {
             H5.H5Tinsert(outerTid, "nested", nestedOffset, vlenInnerTid);
 
             fid     = H5.H5Fcreate(path, HDF5Constants.H5F_ACC_TRUNC, HDF5Constants.H5P_DEFAULT,
-                                    HDF5Constants.H5P_DEFAULT);
+                                   HDF5Constants.H5P_DEFAULT);
             spaceId = H5.H5Screate_simple(1, new long[] {0}, null);
             did     = H5.H5Dcreate(fid, DATASET_NAME, outerTid, spaceId, HDF5Constants.H5P_DEFAULT,
                                    HDF5Constants.H5P_DEFAULT, HDF5Constants.H5P_DEFAULT);
@@ -172,7 +172,8 @@ public class DataFactoryUtilsTest {
         // path must skip that filter and return the inner compound's members untouched.
         Datatype innerCompound = memberType("nested").getDatatypeBase();
 
-        List<Datatype> filtered = DataFactoryUtils.filterNonSelectedMembers(testDataset, innerCompound, false);
+        List<Datatype> filtered =
+            DataFactoryUtils.filterNonSelectedMembers(testDataset, innerCompound, false);
 
         assertNotNull(filtered);
         assertEquals(2, filtered.size(), "inner compound's members must survive unfiltered");
@@ -194,7 +195,8 @@ public class DataFactoryUtilsTest {
         testDataset.selectMember(names.indexOf("id"));
 
         try {
-            filtered = DataFactoryUtils.filterNonSelectedMembers(testDataset, testDataset.getDatatype(), true);
+            filtered =
+                DataFactoryUtils.filterNonSelectedMembers(testDataset, testDataset.getDatatype(), true);
 
             assertEquals(1, filtered.size());
             assertSame(idType, filtered.get(0));
