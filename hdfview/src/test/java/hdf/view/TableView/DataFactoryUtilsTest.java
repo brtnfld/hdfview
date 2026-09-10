@@ -163,6 +163,18 @@ public class DataFactoryUtilsTest {
     }
 
     @Test
+    void countLeafNames_agreesWithExtractCompoundInfoFlatNameList()
+    {
+        // countLeafNames exists to mirror the flat leaf-name list that
+        // H5Datatype.extractCompoundInfo produces; recursiveColumnHeaderSetup walks that
+        // list using these counts to decide which top-level member each name belongs to.
+        // If the two ever disagree, column headers silently misalign - so assert the
+        // relationship itself rather than a hardcoded number.
+        assertEquals(testDataset.getSelectedMemberNames().length,
+                     DataFactoryUtils.countLeafNames(testDataset.getDatatype()));
+    }
+
+    @Test
     void filterNonSelectedMembers_innerCompoundKeepsAllMembersRegardlessOfTopLevelSelection()
     {
         // Regression test for the reported bug: filterNonSelectedMembers used to compare
