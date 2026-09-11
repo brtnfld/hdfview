@@ -2009,6 +2009,46 @@ public class H5Datatype extends Datatype {
      * @throws OutOfMemoryError
      *                          If there is a failure.
      */
+    /**
+     * Whether {@code t} contains a variable-length sequence or variable-length string
+     * anywhere in its type tree - recursing through ARRAY bases and COMPOUND members to
+     * any depth (e.g. ARRAY of ARRAY of variable-length string, or a COMPOUND with a
+     * variable-length member). This mirrors the detection the JNI itself performs in
+     * h5str_detect_vlen()/h5str_detect_vlen_str() (h5util.c) to decide whether an I/O
+     * call is handled by translate_rbuf()/translate_wbuf(), which read such data into
+     * java.util.ArrayList containers rather than narrowly-typed arrays.
+     *
+     * Note a COMPOUND of only fixed-size members is NOT variable-length: it is read
+     * through the plain packed-buffer path, so it must not be reported here.
+     *
+     * @param t the type.
+     * @return true if a top-level Object[]/ArrayList container is required to read this
+     *         type, rather than a narrowly-typed array.
+     */
+    public static boolean containsVlenOrVarStr(final Datatype t)
+    {
+        if (t == null)
+            return false;
+        // isVLEN() already covers isVarStr(): a variable-length string sets isVLEN
+        // true too (see fromNative()). Checked here regardless, since that coupling
+        // is this class's implementation detail, not part of the Datatype contract.
+        if (t.isVarStr() || t.isVLEN())
+            return true;
+        if (t.isArray())
+            return containsVlenOrVarStr(t.getDatatypeBase());
+        if (t.isCompound()) {
+            List<Datatype> members = t.getCompoundMemberTypes();
+            if (members != null) {
+                for (Datatype m : members) {
+                    if (containsVlenOrVarStr(m))
+                        return true;
+                }
+            }
+            return false;
+        }
+        return false;
+    }
+
     public static final Object allocateArray(final H5Datatype dtype, int numPoints)
         throws OutOfMemoryError, HDF5Exception
     {
@@ -2177,17 +2217,31 @@ public class H5Datatype extends Datatype {
             try {
                 log.trace("allocateArray(): ArrayRank={}", dtype.getArrayDims().length);
 
-                // Use the base datatype to define the array
-                long[] arrayDims = dtype.getArrayDims();
-                int asize        = numPoints;
-                for (int j = 0; j < arrayDims.length; j++) {
-                    log.trace("allocateArray(): Array dims[{}]={}", j, arrayDims[j]);
-
-                    asize *= arrayDims[j];
+                if (baseType != null && containsVlenOrVarStr(baseType)) {
+                    // The base type reads as an ArrayList per element (per the JNI's
+                    // documented buffer data model - see translate_rbuf() in h5util.c),
+                    // e.g. ARRAY of variable-length string/sequence/compound, or an
+                    // ARRAY of ARRAY of one of those. A flat, narrowly-typed buffer
+                    // (e.g. String[]) can't hold an ArrayList: the JNI's
+                    // SetObjectArrayElement call throws, and translate_rbuf's exception
+                    // handling silently discards it, leaving the buffer empty. Slots are
+                    // left null: H5DreadVL/H5AreadVL install a freshly allocated
+                    // ArrayList into each slot.
+                    data = new Object[numPoints];
                 }
+                else {
+                    // Use the base datatype to define the array
+                    long[] arrayDims = dtype.getArrayDims();
+                    int asize        = numPoints;
+                    for (int j = 0; j < arrayDims.length; j++) {
+                        log.trace("allocateArray(): Array dims[{}]={}", j, arrayDims[j]);
 
-                if (baseType != null)
-                    data = H5Datatype.allocateArray(baseType, asize);
+                        asize *= arrayDims[j];
+                    }
+
+                    if (baseType != null)
+                        data = H5Datatype.allocateArray(baseType, asize);
+                }
             }
             catch (Exception ex) {
                 log.debug("allocateArray(): CLASS_ARRAY class failure: ", ex);

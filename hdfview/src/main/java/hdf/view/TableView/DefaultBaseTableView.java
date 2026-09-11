@@ -1298,18 +1298,14 @@ public abstract class DefaultBaseTableView implements TableView {
     /**
      * Show the editing-disabled notice. Called when the user attempts to edit
      * a cell in a dataset whose datatype has no symmetric write path (see
-     * {@link DataFactoryUtils#isUnsafeForWrite}). Throttled to one dialog per
-     * second so a held-down key or rapid clicks don't stack popups.
+     * {@link DataFactoryUtils#isUnsafeForWrite}). No throttling is needed:
+     * {@link Tools#showInformation} opens a modal JFace dialog, so the calling
+     * event isn't re-entered until the user dismisses it.
      */
-    private long lastUnsafeWriteNoticeMs = 0;
     protected final void showUnsafeWriteNotice()
     {
         if (!unsafeForWrite || shell == null || shell.isDisposed())
             return;
-        long now = System.currentTimeMillis();
-        if (now - lastUnsafeWriteNoticeMs < 1000)
-            return;
-        lastUnsafeWriteNoticeMs = now;
 
         Tools.showInformation(shell, "Editing disabled",
                               "HDFView does not support editing datasets that contain any of the following:\n"
