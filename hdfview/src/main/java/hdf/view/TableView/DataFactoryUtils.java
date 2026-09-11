@@ -403,8 +403,25 @@ public class DataFactoryUtils {
         if (dtype == null)
             return false;
 
-        if (dtype.isVLEN() && !dtype.isVarStr())
-            return true;
+        if (dtype.isVLEN() && !dtype.isVarStr()) {
+            /*
+             * A plain top-level VLEN of an atomic base (a scalar dataset whose own type
+             * is a vlen sequence) is long-standing, working functionality, unaffected by
+             * anything here. A VLEN member of a compound - whether vlen-of-atomic or
+             * vlen-of-compound - now has a working write path too, via
+             * H5CompoundDS.writeSingleCompoundMember()'s H5DwriteVL call. The one
+             * genuinely unsupported shape is a dataset whose own root type is directly
+             * VLEN-of-COMPOUND: H5CompoundDS.compoundDatasetCommonIO() rejects that with
+             * an explicit exception before ever reaching the write path, so disable
+             * editing for it here too rather than let the user hit that exception.
+             */
+            if (!insideCompound) {
+                Datatype base = dtype.getDatatypeBase();
+                if (base != null && base.isCompound())
+                    return true;
+            }
+            return false;
+        }
 
         if (dtype.isArray()) {
             Datatype base = dtype.getDatatypeBase();

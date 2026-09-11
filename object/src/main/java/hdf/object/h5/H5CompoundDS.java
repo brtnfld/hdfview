@@ -929,6 +929,7 @@ public class H5CompoundDS extends CompoundDS implements MetaDataContainer {
      */
     private Object compoundTypeIO(H5File.IO_TYPE ioType, long did, long[] spaceIDs, int nSelPoints,
                                   final H5Datatype cmpdType, Object writeBuf, int[] globalMemberIndex)
+        throws Exception
     {
         Object theData = null;
 
@@ -951,32 +952,43 @@ public class H5CompoundDS extends CompoundDS implements MetaDataContainer {
              * shape VlenDataProvider/VlenDataDisplayConverter render. The dataset enumerates
              * a single member (see H5Datatype.extractCompoundInfo), so we return one column.
              */
-            if (ioType == H5File.IO_TYPE.READ) {
-                long wholeTid = -1;
-                try {
-                    wholeTid = H5.H5Dget_type(did);
+            boolean isRead = (ioType == H5File.IO_TYPE.READ);
+            long wholeTid  = -1;
+            try {
+                wholeTid = H5.H5Dget_type(did);
+                if (isRead) {
                     @SuppressWarnings("rawtypes")
                     ArrayList[] vlBuf = new ArrayList[nSelPoints];
                     H5.H5DreadVL(did, wholeTid, spaceIDs[0], spaceIDs[1], HDF5Constants.H5P_DEFAULT, vlBuf);
                     globalMemberIndex[0]++;
                     theData = vlBuf;
                 }
-                catch (HDF5DataFiltersException exfltr) {
-                    log.debug("compoundTypeIO(): top-level VLEN read failure: ", exfltr);
-                    throw new HDF5Exception("Filter not available exception: " + exfltr.getMessage());
+                else {
+                    // Mirrors the "dataset enumerates a single member" convention on the
+                    // read side: writeBuf here is the top-level per-member List, and this
+                    // vlen-of-compound occupies its one and only slot.
+                    Object vlBuf = ((List<?>)writeBuf).get(0);
+                    H5.H5DwriteVL(did, wholeTid, spaceIDs[0], spaceIDs[1], HDF5Constants.H5P_DEFAULT,
+                                  (Object[])vlBuf);
+                    globalMemberIndex[0]++;
                 }
-                catch (Exception ex) {
-                    log.debug("compoundTypeIO(): top-level VLEN read failure: ", ex);
-                    throw new HDF5Exception("failed to read VLEN-of-compound dataset: " + ex.getMessage());
-                }
-                finally {
-                    if (wholeTid >= 0) {
-                        try {
-                            H5.H5Tclose(wholeTid);
-                        }
-                        catch (Exception ex) {
-                            log.debug("compoundTypeIO(): H5Tclose(wholeTid {}) failure: ", wholeTid, ex);
-                        }
+            }
+            catch (HDF5DataFiltersException exfltr) {
+                log.debug("compoundTypeIO(): top-level VLEN {} failure: ", isRead ? "read" : "write", exfltr);
+                throw new HDF5Exception("Filter not available exception: " + exfltr.getMessage());
+            }
+            catch (Exception ex) {
+                log.debug("compoundTypeIO(): top-level VLEN {} failure: ", isRead ? "read" : "write", ex);
+                throw new HDF5Exception("failed to " + (isRead ? "read" : "write") +
+                                        " VLEN-of-compound dataset: " + ex.getMessage());
+            }
+            finally {
+                if (wholeTid >= 0) {
+                    try {
+                        H5.H5Tclose(wholeTid);
+                    }
+                    catch (Exception ex) {
+                        log.debug("compoundTypeIO(): H5Tclose(wholeTid {}) failure: ", wholeTid, ex);
                     }
                 }
             }
@@ -1174,6 +1186,11 @@ public class H5CompoundDS extends CompoundDS implements MetaDataContainer {
                         catch (Exception ex) {
                             log.debug("compoundTypeIO(): failed to write member[{}]: ", i, ex);
                             globalMemberIndex[0]++;
+                            // A write failure here means the member's data was not
+                            // persisted; the caller must not be told the write succeeded.
+                            throw new Exception("failed to write compound member '" + memberName +
+                                                    "': " + ex.getMessage(),
+                                                ex);
                         }
                     }
                 } //  (i = 0, writeListIndex = 0; i < atomicTypeList.size(); i++)
@@ -1181,6 +1198,11 @@ public class H5CompoundDS extends CompoundDS implements MetaDataContainer {
             catch (Exception ex) {
                 log.debug("compoundTypeIO(): failure: ", ex);
                 memberDataList = null;
+                // On write, a member failure means some of the caller's data was not
+                // persisted - that must be reported, not swallowed. On read, preserve
+                // the existing behavior of returning null for the compound.
+                if (ioType == H5File.IO_TYPE.WRITE)
+                    throw ex;
             }
 
             theData = memberDataList;
@@ -1453,15 +1475,6 @@ public class H5CompoundDS extends CompoundDS implements MetaDataContainer {
         H5Datatype dsDatatype = (H5Datatype)this.getDatatype();
 
         /*
-         * Check for any unsupported datatypes before attempting to write this compound
-         * member.
-         */
-        if (memberType.isVLEN() && !memberType.isVarStr()) {
-            log.debug("writeSingleCompoundMember(): writing of VL non-strings is not currently supported");
-            throw new Exception("writing of VL non-strings is not currently supported");
-        }
-
-        /*
          * Perform any necessary data conversions before writing the data.
          */
         Object tmpData = theData;
@@ -1527,6 +1540,23 @@ public class H5CompoundDS extends CompoundDS implements MetaDataContainer {
 
                 H5.H5Dwrite_string(dsetID, compTid, spaceIDs[0], spaceIDs[1], HDF5Constants.H5P_DEFAULT,
                                    (String[])tmpData);
+            }
+            else if (memberType.isVLEN()) {
+                log.trace(
+                    "writeSingleCompoundMember(): H5DwriteVL did={} compTid={} spaceIDs[0]={} spaceIDs[1]={}",
+                    dsetID, compTid, (spaceIDs[0] == HDF5Constants.H5P_DEFAULT) ? "H5P_DEFAULT" : spaceIDs[0],
+                    (spaceIDs[1] == HDF5Constants.H5P_DEFAULT) ? "H5P_DEFAULT" : spaceIDs[1]);
+
+                // H5DwriteVL is called with a single-field compound transfer type,
+                // mirroring readSingleCompoundMember()'s unwrapping on the read side: each
+                // row must be wrapped in a one-element record matching that compound
+                // structure, rather than passed as the bare per-row payload.
+                Object[] rows    = (Object[])tmpData;
+                Object[] wrapped = new Object[rows.length];
+                for (int r = 0; r < rows.length; r++)
+                    wrapped[r] = new ArrayList<>(java.util.Collections.singletonList(rows[r]));
+
+                H5.H5DwriteVL(dsetID, compTid, spaceIDs[0], spaceIDs[1], HDF5Constants.H5P_DEFAULT, wrapped);
             }
             else {
                 log.trace(
