@@ -974,9 +974,7 @@ public class H5ScalarDS extends ScalarDS implements MetaDataContainer {
                             tid = dsDatatype.createNative();
                             log.trace("scalarDatasetCommonIO(): native type created tid={}", tid);
 
-                            if (dsDatatype.isVarStr() ||
-                                (dsDatatype.isArray() && dsDatatype.getDatatypeBase() != null &&
-                                 dsDatatype.getDatatypeBase().isVarStr())) {
+                            if (dsDatatype.isVarStr()) {
                                 log.trace(
                                     "scalarDatasetCommonIO(): H5Dread_VLStrings did={} tid={} spaceIDs[0]={} spaceIDs[1]={}",
                                     did, tid,
@@ -986,8 +984,7 @@ public class H5ScalarDS extends ScalarDS implements MetaDataContainer {
                                 H5.H5Dread_VLStrings(did, tid, spaceIDs[0], spaceIDs[1],
                                                      HDF5Constants.H5P_DEFAULT, (Object[])theData);
                             }
-                            else if (dsDatatype.isVLEN() ||
-                                     (dsDatatype.isArray() && dsDatatype.getDatatypeBase().isVLEN())) {
+                            else if (H5Datatype.containsVlenOrVarStr(dsDatatype)) {
                                 // Check for unsupported VLEN complex combination
                                 H5Datatype baseType = (H5Datatype)dsDatatype.getDatatypeBase();
                                 if (baseType != null && baseType.isComplex()) {
@@ -1127,9 +1124,7 @@ public class H5ScalarDS extends ScalarDS implements MetaDataContainer {
                     try {
                         tid = dsDatatype.createNative();
 
-                        if (dsDatatype.isVarStr() ||
-                            (dsDatatype.isArray() && dsDatatype.getDatatypeBase() != null &&
-                             dsDatatype.getDatatypeBase().isVarStr())) {
+                        if (dsDatatype.isVarStr()) {
                             log.trace(
                                 "scalarDatasetCommonIO(): H5Dwrite_VLStrings did={} tid={} spaceIDs[0]={} spaceIDs[1]={}",
                                 did, tid,
@@ -1139,8 +1134,7 @@ public class H5ScalarDS extends ScalarDS implements MetaDataContainer {
                             H5.H5Dwrite_VLStrings(did, tid, spaceIDs[0], spaceIDs[1],
                                                   HDF5Constants.H5P_DEFAULT, (Object[])tmpData);
                         }
-                        else if (dsDatatype.isVLEN() ||
-                                 (dsDatatype.isArray() && dsDatatype.getDatatypeBase().isVLEN())) {
+                        else if (H5Datatype.containsVlenOrVarStr(dsDatatype)) {
                             log.trace(
                                 "scalarDatasetCommonIO(): H5DwriteVL did={} tid={} spaceIDs[0]={} spaceIDs[1]={}",
                                 did, tid,

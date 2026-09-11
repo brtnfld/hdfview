@@ -1089,12 +1089,68 @@ public class DataProviderFactory {
                 nCols = super.getColumnCount();
         }
 
+        /**
+         * Read element {@code i} of an array-or-List container, or null when out of range.
+         */
+        private static Object elementAt(Object container, int i)
+        {
+            if (container == null || i < 0)
+                return null;
+            if (container instanceof List) {
+                List<?> list = (List<?>)container;
+                return (i < list.size()) ? list.get(i) : null;
+            }
+            if (container.getClass().isArray())
+                return (i < Array.getLength(container)) ? Array.get(container, i) : null;
+            return null;
+        }
+
+        /**
+         * Produce this array's cell value from {@code container}, the java.util.List
+         * holding exactly this array's elements. Used when the data was read through
+         * translate_rbuf() (the JNI's documented buffer data model), which represents an
+         * ARRAY as an ArrayList of its elements rather than as a slice of one flat
+         * buffer. Because each level of nesting is its own List, the elements are
+         * addressed directly by index instead of by an accumulated flattened offset -
+         * the latter cannot describe a List-per-row layout once nesting is involved.
+         */
+        private Object getDataValueFromContainer(Object container, int columnIndex)
+        {
+            Object[] tempArray = new Object[(int)arraySize];
+
+            for (int i = 0; i < arraySize; i++) {
+                Object elem = elementAt(container, i);
+
+                if (baseTypeDataProvider instanceof ArrayDataProvider)
+                    tempArray[i] = ((ArrayDataProvider)baseTypeDataProvider)
+                                       .getDataValueFromContainer(elem, columnIndex);
+                else if (elem instanceof byte[])
+                    tempArray[i] = baseTypeDataProvider.getDataValue(elem, 0);
+                else
+                    tempArray[i] = elem;
+            }
+
+            return tempArray;
+        }
+
         @Override
         public Object getDataValue(int columnIndex, int rowIndex)
         {
             log.trace("getDataValue(rowIndex={}, columnIndex={}): start", rowIndex, columnIndex);
             try {
                 int bufIndex = physicalLocationToBufIndex(rowIndex, columnIndex);
+
+                /*
+                 * When the data was read through translate_rbuf(), each row slot holds a
+                 * java.util.List of this array's elements rather than a slice of one flat
+                 * buffer, so address the elements directly instead of by flattened offset.
+                 */
+                Object rowContainer = elementAt(dataBuf, bufIndex);
+                if (rowContainer instanceof List) {
+                    theValue = getDataValueFromContainer(rowContainer, columnIndex);
+                    log.trace("getDataValue({}, {})({}): finish", rowIndex, columnIndex, theValue);
+                    return theValue;
+                }
 
                 bufIndex *= arraySize;
 
@@ -1145,6 +1201,15 @@ public class DataProviderFactory {
         {
             log.trace("getDataValue(obj={} rowIndex={}, columnIndex={}): start", obj, rowIndex, columnIndex);
             try {
+                /* See getDataValue(int, int) - List-per-row layout is addressed directly. */
+                Object rowContainer = elementAt(obj, rowIndex);
+                if (rowContainer instanceof List) {
+                    theValue = getDataValueFromContainer(rowContainer, columnIndex);
+                    log.trace("getDataValue(obj={}, rowIndex={}, columnIndex={})=({}): finish", obj, rowIndex,
+                              columnIndex, theValue);
+                    return theValue;
+                }
+
                 long index = rowIndex * arraySize;
 
                 if (baseTypeDataProvider instanceof CompoundDataProvider) {

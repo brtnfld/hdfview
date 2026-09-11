@@ -679,151 +679,152 @@ public class DefaultCompoundDSTableView extends DefaultBaseTableView implements 
         public void handleLayerEvent(ILayerEvent e)
         {
             if (e instanceof CellSelectionEvent) {
-                // For datatypes where the display column count has been
-                // expanded (array-of-compound, vlen-of-compound, etc.) the
-                // listener below hits a null ptr because baseIndexMap was built from the
-                // unexpanded member count. Editing is already disabled for
-                // these via unsafeForWrite, and the listener's side effects
-                // (ref preview, etc.) don't apply, so just return.
-                if (unsafeForWrite)
-                    return;
-
-                CellSelectionEvent event = (CellSelectionEvent)e;
-                boolean valIsRegRef      = false;
-                boolean valIsObjRef      = false;
-
-                HashMap<Integer, Integer> baseIndexMap;
-                HashMap<Integer, Integer> relCmpdStartIndexMap;
-
-                CompoundDataFormat dataFormat = (CompoundDataFormat)dataObject;
-                Datatype cmpdType             = dataObject.getDatatype();
-
-                // Resolve VLEN(compound) to compound base type
-                if (cmpdType.isVLEN() && !cmpdType.isVarStr() && cmpdType.getDatatypeBase() != null &&
-                    cmpdType.getDatatypeBase().isCompound()) {
-                    cmpdType = cmpdType.getDatatypeBase();
-                }
-
-                Datatype[] selectedMemberTypes = dataFormat.getSelectedMemberTypes();
-                List<Datatype> localSelectedTypes =
-                    DataFactoryUtils.filterNonSelectedMembers(dataFormat, cmpdType);
-
-                HashMap<Integer, Integer>[] maps = null;
                 try {
-                    maps = DataFactoryUtils.buildIndexMaps(dataFormat, localSelectedTypes);
+                    refineCellValuePreview((CellSelectionEvent)e);
                 }
                 catch (Exception ex) {
-                    log.debug("CompoundDSCellSelectionListener: buildIndexMaps", ex);
+                    // For datatypes where the display column count has been expanded
+                    // (array-of-compound, vlen-of-compound, etc.), baseIndexMap is built
+                    // from the unexpanded member count and a lookup below can go out of
+                    // range. This only refines the read-only cell-value preview text, so
+                    // failing safe here (skip the refinement) is fine regardless of
+                    // whether the datatype also happens to be unsafe for writing.
+                    log.debug("CompoundDSCellSelectionListener: unable to refine cell value preview", ex);
                 }
-                baseIndexMap         = maps[DataFactoryUtils.COL_TO_BASE_CLASS_MAP_INDEX];
-                relCmpdStartIndexMap = maps[DataFactoryUtils.CMPD_START_IDX_MAP_INDEX];
-
-                if (baseIndexMap.size() == 0) {
-                    log.debug("base index mapping is invalid - size 0");
-                }
-
-                if (relCmpdStartIndexMap.size() == 0) {
-                    log.debug("compound field start index mapping is invalid - size 0");
-                }
-
-                /*
-                 * nCols should represent the number of columns covered by this CompoundData
-                 * only. For top-level CompoundData, this should be the entire width of the
-                 * dataset. For nested CompoundData, nCols will be a subset of these columns.
-                 */
-                int nCols = (int)dataFormat.getWidth() * baseIndexMap.size();
-                int nRows = (int)dataFormat.getHeight();
-
-                int nSubColumns = (int)dataFormat.getWidth();
-                int fieldIndex  = event.getColumnPosition();
-                int rowIdx      = event.getRowPosition();
-
-                if (nSubColumns > 1) { // multi-dimension compound dataset
-                    /*
-                     * Make sure fieldIdx is within a valid range, since even for multi-dimensional
-                     * compound datasets there will only be as many lists of data as there are
-                     * members in a single compound type.
-                     */
-                    fieldIndex %= selectedMemberTypes.length;
-                    if (fieldIndex == 0)
-                        fieldIndex = selectedMemberTypes.length;
-
-                    int realColIdx = event.getColumnPosition() / selectedMemberTypes.length;
-                    rowIdx         = event.getRowPosition() * nSubColumns + realColIdx;
-                }
-                log.trace("CompoundDSCellSelectionListener: CellSelected fieldIndex={}:{}", rowIdx,
-                          fieldIndex);
-
-                int bIndex      = baseIndexMap.get(fieldIndex - 1);
-                Object colValue = ((List<?>)dataValue).get(bIndex);
-                if (colValue == null)
-                    log.debug("CompoundDSCellSelectionListener: CellSelected colValue is null for Idx={}",
-                              bIndex);
-
-                Datatype selectedType = selectedMemberTypes[bIndex];
-
-                if (selectedType.isRef()) {
-                    valIsRegRef = (selectedType.getDatatypeSize() == HDF5Constants.H5R_DSET_REG_REF_BUF_SIZE);
-                    valIsObjRef = (selectedType.getDatatypeSize() == HDF5Constants.H5R_OBJ_REF_BUF_SIZE);
-                }
-
-                int rowStart  = ((RowHeaderDataProvider)rowHeaderDataProvider).start;
-                int rowStride = ((RowHeaderDataProvider)rowHeaderDataProvider).stride;
-
-                int rowIndex = rowStart + indexBase +
-                               dataTable.getRowIndexByPosition(event.getRowPosition()) * rowStride;
-                Object fieldName = columnHeaderDataProvider.getDataValue(
-                    dataTable.getColumnIndexByPosition(event.getColumnPosition()), 0);
-
-                String colIndex = "";
-                if (dataObject.getWidth() > 1) {
-                    int groupSize = ((CompoundDataFormat)dataObject).getSelectedMemberCount();
-                    colIndex =
-                        "[" +
-                        String.valueOf((dataTable.getColumnIndexByPosition(event.getColumnPosition())) /
-                                       groupSize) +
-                        "]";
-                }
-                Object val =
-                    dataTable.getDataValueByPosition(event.getColumnPosition(), event.getRowPosition());
-
-                cellLabel.setText(String.valueOf(rowIndex) + ", " + fieldName + colIndex + " =  ");
-
-                if (val == null) {
-                    cellValueField.setText("Null");
-                    return;
-                }
-
-                String strVal = null;
-                if (valIsRegRef) {
-                    boolean displayValues = ViewProperties.showRegRefValues();
-
-                    if (val != null && ((String)val).compareTo("NULL") != 0) {
-                        strVal = (String)val;
-                    }
-                    else {
-                        strVal = null;
-                    }
-                }
-                else if (valIsObjRef) {
-                    if (val != null && ((String)val).compareTo("NULL") != 0) {
-                        strVal = (String)val;
-                    }
-                    else {
-                        strVal = null;
-                    }
-                }
-
-                ILayerCell cell = dataTable.getCellByPosition(((CellSelectionEvent)e).getColumnPosition(),
-                                                              ((CellSelectionEvent)e).getRowPosition());
-                strVal =
-                    dataDisplayConverter.canonicalToDisplayValue(cell, dataTable.getConfigRegistry(), val)
-                        .toString();
-
-                cellValueField.setText(strVal);
-                ((ScrolledComposite)cellValueField.getParent())
-                    .setMinSize(cellValueField.computeSize(SWT.DEFAULT, SWT.DEFAULT));
             }
+        }
+
+        private void refineCellValuePreview(CellSelectionEvent event) throws Exception
+        {
+            boolean valIsRegRef = false;
+            boolean valIsObjRef = false;
+
+            HashMap<Integer, Integer> baseIndexMap;
+            HashMap<Integer, Integer> relCmpdStartIndexMap;
+
+            CompoundDataFormat dataFormat = (CompoundDataFormat)dataObject;
+            Datatype cmpdType             = dataObject.getDatatype();
+
+            // Resolve VLEN(compound) to compound base type
+            if (cmpdType.isVLEN() && !cmpdType.isVarStr() && cmpdType.getDatatypeBase() != null &&
+                cmpdType.getDatatypeBase().isCompound()) {
+                cmpdType = cmpdType.getDatatypeBase();
+            }
+
+            Datatype[] selectedMemberTypes = dataFormat.getSelectedMemberTypes();
+            List<Datatype> localSelectedTypes =
+                DataFactoryUtils.filterNonSelectedMembers(dataFormat, cmpdType);
+
+            HashMap<Integer, Integer>[] maps = null;
+            try {
+                maps = DataFactoryUtils.buildIndexMaps(dataFormat, localSelectedTypes);
+            }
+            catch (Exception ex) {
+                log.debug("CompoundDSCellSelectionListener: buildIndexMaps", ex);
+            }
+            baseIndexMap         = maps[DataFactoryUtils.COL_TO_BASE_CLASS_MAP_INDEX];
+            relCmpdStartIndexMap = maps[DataFactoryUtils.CMPD_START_IDX_MAP_INDEX];
+
+            if (baseIndexMap.size() == 0) {
+                log.debug("base index mapping is invalid - size 0");
+            }
+
+            if (relCmpdStartIndexMap.size() == 0) {
+                log.debug("compound field start index mapping is invalid - size 0");
+            }
+
+            /*
+             * nCols should represent the number of columns covered by this CompoundData
+             * only. For top-level CompoundData, this should be the entire width of the
+             * dataset. For nested CompoundData, nCols will be a subset of these columns.
+             */
+            int nCols = (int)dataFormat.getWidth() * baseIndexMap.size();
+            int nRows = (int)dataFormat.getHeight();
+
+            int nSubColumns = (int)dataFormat.getWidth();
+            int fieldIndex  = event.getColumnPosition();
+            int rowIdx      = event.getRowPosition();
+
+            if (nSubColumns > 1) { // multi-dimension compound dataset
+                /*
+                 * Make sure fieldIdx is within a valid range, since even for multi-dimensional
+                 * compound datasets there will only be as many lists of data as there are
+                 * members in a single compound type.
+                 */
+                fieldIndex %= selectedMemberTypes.length;
+                if (fieldIndex == 0)
+                    fieldIndex = selectedMemberTypes.length;
+
+                int realColIdx = event.getColumnPosition() / selectedMemberTypes.length;
+                rowIdx         = event.getRowPosition() * nSubColumns + realColIdx;
+            }
+            log.trace("CompoundDSCellSelectionListener: CellSelected fieldIndex={}:{}", rowIdx, fieldIndex);
+
+            int bIndex      = baseIndexMap.get(fieldIndex - 1);
+            Object colValue = ((List<?>)dataValue).get(bIndex);
+            if (colValue == null)
+                log.debug("CompoundDSCellSelectionListener: CellSelected colValue is null for Idx={}",
+                          bIndex);
+
+            Datatype selectedType = selectedMemberTypes[bIndex];
+
+            if (selectedType.isRef()) {
+                valIsRegRef = (selectedType.getDatatypeSize() == HDF5Constants.H5R_DSET_REG_REF_BUF_SIZE);
+                valIsObjRef = (selectedType.getDatatypeSize() == HDF5Constants.H5R_OBJ_REF_BUF_SIZE);
+            }
+
+            int rowStart  = ((RowHeaderDataProvider)rowHeaderDataProvider).start;
+            int rowStride = ((RowHeaderDataProvider)rowHeaderDataProvider).stride;
+
+            int rowIndex =
+                rowStart + indexBase + dataTable.getRowIndexByPosition(event.getRowPosition()) * rowStride;
+            Object fieldName = columnHeaderDataProvider.getDataValue(
+                dataTable.getColumnIndexByPosition(event.getColumnPosition()), 0);
+
+            String colIndex = "";
+            if (dataObject.getWidth() > 1) {
+                int groupSize = ((CompoundDataFormat)dataObject).getSelectedMemberCount();
+                colIndex      = "[" +
+                           String.valueOf((dataTable.getColumnIndexByPosition(event.getColumnPosition())) /
+                                          groupSize) +
+                           "]";
+            }
+            Object val = dataTable.getDataValueByPosition(event.getColumnPosition(), event.getRowPosition());
+
+            cellLabel.setText(String.valueOf(rowIndex) + ", " + fieldName + colIndex + " =  ");
+
+            if (val == null) {
+                cellValueField.setText("Null");
+                return;
+            }
+
+            String strVal = null;
+            if (valIsRegRef) {
+                boolean displayValues = ViewProperties.showRegRefValues();
+
+                if (val != null && ((String)val).compareTo("NULL") != 0) {
+                    strVal = (String)val;
+                }
+                else {
+                    strVal = null;
+                }
+            }
+            else if (valIsObjRef) {
+                if (val != null && ((String)val).compareTo("NULL") != 0) {
+                    strVal = (String)val;
+                }
+                else {
+                    strVal = null;
+                }
+            }
+
+            ILayerCell cell = dataTable.getCellByPosition(event.getColumnPosition(), event.getRowPosition());
+            strVal = dataDisplayConverter.canonicalToDisplayValue(cell, dataTable.getConfigRegistry(), val)
+                         .toString();
+
+            cellValueField.setText(strVal);
+            ((ScrolledComposite)cellValueField.getParent())
+                .setMinSize(cellValueField.computeSize(SWT.DEFAULT, SWT.DEFAULT));
         }
     }
 
