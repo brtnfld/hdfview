@@ -1,0 +1,21 @@
+hdfview/src/main/java/hdf/view/HDFView.java
+  s_69dad4e707027a::t_e923521c2ec6a3 1169-1171,1174-1183
+hdfview/src/main/java/hdf/view/ViewProperties.java
+  s_69dad4e707027a::t_90e47c849d1b7f 186,333
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "22d7741d352a4d99691fd2061346c86ff0cc81c4",
+  "prompts": {},
+  "sessions": {
+    "s_69dad4e707027a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ad311e6c-c0ff-4dbe-a50b-7be51e3f3874",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "M. Scot Breitenfeld <brtnfld@hdfgroup.org>"
+    }
+  }
+}
